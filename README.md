@@ -1,111 +1,99 @@
-# Multi-Container Runtime
+# OS-Jackfruit — Supervised Multi-Container Runtime
 
-A lightweight Linux container runtime in C with a long-running supervisor and a kernel-space memory monitor.
+## 1. Team Information
 
-Read [`project-guide.md`](project-guide.md) for the full project specification.
+| Name              | SRN           |
+| ----------------- | ------------- |
+| Kartik Naik       | PES1UG24CS219 |
+| Kushal Jayavarapu | PES1UG24CS246 |
 
----
 
-## Getting Started
+## 2. Build, Load, and Run Instructions
 
-### 1. Fork the Repository
+### Version
 
-1. Go to [github.com/shivangjhalani/OS-Jackfruit](https://github.com/shivangjhalani/OS-Jackfruit)
-2. Click **Fork** (top-right)
-3. Clone your fork:
+*  Ubuntu 24.04 in a VM
 
-```bash
-git clone https://github.com/<your-username>/OS-Jackfruit.git
-cd OS-Jackfruit
-```
+### Running the Supervisor
 
-### 2. Set Up Your VM
+* Start supervisor: `sudo ./engine supervisor ./rootfs-base`
+* Container operations: `start`, `run`, `ps`, `logs`, `stop`
 
-You need an **Ubuntu 22.04 or 24.04** VM with **Secure Boot OFF**. WSL will not work.
+### Tests and Experiments
 
-Install dependencies:
+* Memory limit tests
+* Scheduler experiments (CPU-bound vs I/O-bound, different priorities)
 
-```bash
-sudo apt update
-sudo apt install -y build-essential linux-headers-$(uname -r)
-```
+### Clean Shutdown
 
-### 3. Run the Environment Check
+* Stop supervisor: `Ctrl+C`
+* Remove kernel module: `sudo rmmod monitor`
 
-```bash
-cd boilerplate
-chmod +x environment-check.sh
-sudo ./environment-check.sh
-```
+## 3. Demo Screenshots:
+ 1  Two containers (alpha, beta) running under one supervisor
+      <img width="1166" height="57" alt="ss1" src="https://github.com/user-attachments/assets/1e39a119-bdf5-421e-9c1a-8b51605079a0" />
 
-Fix any issues reported before moving on.
+ 2  `ps` output showing container metadata (ID, PID, STATE, SOFT/HARD limits) 
+      <img width="1214" height="465" alt="ss2" src="https://github.com/user-attachments/assets/0a858966-1d14-4269-8c8a-d3feb037c3d2" />
+ 
+ 3  Container logs showing captured output 
+      <img width="1214" height="248" alt="ss3" src="https://github.com/user-attachments/assets/a5d1625a-0af0-4e73-9335-e73cb145caa8" />
+      
+ 4  Stopping test alpha
+      <img width="1600" height="158" alt="image" src="https://github.com/user-attachments/assets/c18b0b35-5bfe-427a-afa2-fe2419fef822" />
 
-### 4. Prepare the Root Filesystem
+ 5  `dmesg` showing SOFT LIMIT warning for memory test container and `dmesg` showing HARD LIMIT kill and supervisor reflecting `state=killed` 
+      <img width="1006" height="208" alt="ss5and6" src="https://github.com/user-attachments/assets/987c6f8e-5476-46a3-9540-13cc79666a09" />
 
-```bash
-mkdir rootfs-base
-wget https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-3.20.3-x86_64.tar.gz
-tar -xzf alpine-minirootfs-3.20.3-x86_64.tar.gz -C rootfs-base
+ 6  Log comparison showing CPU usage differences                              
+      <img width="1055" height="678" alt="ss7" src="https://github.com/user-attachments/assets/8b877814-7748-4d30-84c0-ffeef514e733" />
 
-# Make one writable copy per container you plan to run
-cp -a ./rootfs-base ./rootfs-alpha
-cp -a ./rootfs-base ./rootfs-beta
-```
+ 7  `dmesg` showing module unloaded and zero zombie processes                 
+      <img width="1148" height="175" alt="ss8" src="https://github.com/user-attachments/assets/60b70c1b-1957-43d0-a43c-4be2d7fbb778" />
 
-Do not commit `rootfs-base/` or `rootfs-*` directories to your repository.
 
-### 5. Understand the Boilerplate
+## 4. Engineering Analysis
 
-The `boilerplate/` folder contains starter files:
+### 4.1 Isolation Mechanisms
 
-| File                   | Purpose                                             |
-| ---------------------- | --------------------------------------------------- |
-| `engine.c`             | User-space runtime and supervisor skeleton          |
-| `monitor.c`            | Kernel module skeleton                              |
-| `monitor_ioctl.h`      | Shared ioctl command definitions                    |
-| `Makefile`             | Build targets for both user-space and kernel module |
-| `cpu_hog.c`            | CPU-bound test workload                             |
-| `io_pulse.c`           | I/O-bound test workload                             |
-| `memory_hog.c`         | Memory-consuming test workload                      |
-| `environment-check.sh` | VM environment preflight check                      |
+* PID, UTS, and mount namespaces with `chroot` filesystem isolation
 
-Use these as your starting point. You are free to restructure the repository however you want — the submission requirements are listed in the project guide.
+### 4.2 Supervisor and Process Lifecycle
 
-### 6. Build and Verify
+* Long-running supervisor reaps children to avoid zombies
+* Metadata stored per container
 
-```bash
-cd boilerplate
-make
-```
+### 4.3 IPC and Synchronization
 
-If this compiles without errors, your environment is ready.
+* Pipe for logs, UNIX socket for CLI
+* Mutexes and condition variables for thread safety
 
-### 7. GitHub Actions Smoke Check
+### 4.4 Memory Management
 
-Your fork will inherit a minimal GitHub Actions workflow from this repository.
+* Soft vs hard limits
+* Kernel module enforces limits atomically
 
-That workflow only performs CI-safe checks:
+### 4.5 Scheduling Behavior
 
-- `make -C boilerplate ci`
-- user-space binary compilation (`engine`, `memory_hog`, `cpu_hog`, `io_pulse`)
-- `./boilerplate/engine` with no arguments must print usage and exit with a non-zero status
+* CPU-bound vs I/O-bound containers
+* Nice values affect CPU allocation
 
-The CI-safe build command is:
+## 5. Design Decisions and Tradeoffs
 
-```bash
-make -C boilerplate ci
-```
+* Namespace isolation vs simplicity
+* Single-threaded supervisor for correctness
+* Pipe-based logging vs shared memory
+* Kernel monitor with `mutex_trylock` vs spinlock
+* Metrics choice for scheduler experiments
 
-This smoke check does not test kernel-module loading, supervisor runtime behavior, or container execution.
+## 6. Scheduler Experiment Results
 
----
+### Experiment 1: CPU-bound vs CPU-bound, different nice values
 
-## What to Do Next
+* High nice vs low nice accumulator comparison
+* Observed CPU share proportional to weight
 
-Read [`project-guide.md`](project-guide.md) end to end. It contains:
+### Experiment 2: CPU-bound vs I/O-bound, same nice value
 
-- The six implementation tasks (multi-container runtime, CLI, logging, kernel monitor, scheduling experiments, cleanup)
-- The engineering analysis you must write
-- The exact submission requirements, including what your `README.md` must contain (screenshots, analysis, design decisions)
-
-Your fork's `README.md` should be replaced with your own project documentation as described in the submission package section of the project guide. (As in get rid of all the above content and replace with your README.md)
+* CPU hog vs I/O-bound process behavior
+* Demonstrates CFS responsiveness to I/O-bound workloads
